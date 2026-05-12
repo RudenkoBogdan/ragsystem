@@ -1,0 +1,16 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+python-jose[cryptography]==3.3.0
+passlib[argon2]==1.7.4
+python-multipart==0.0.12
+openai==1.52.0
+arxiv==2.1.3
+PyMuPDF==1.24.14
+sentence-transformers==3.3.1
+chromadb==0.5.23
+pydantic==2.10.3
+pydantic-settings==2.6.1
+httpx==0.28.1
+python-dotenv==1.0.1
+aiofiles==24.1.0

@@ -20,12 +20,22 @@ export default function ChatPage() {
       router.replace("/login");
       return;
     }
-    Promise.all([sessionsApi.list(), papersApi.list()]).then(([s, p]) => {
-      setSessions(s);
-      setPapers(p);
-      if (s.length > 0) setActiveSession(s[0]);
-      setLoading(false);
-    });
+
+    Promise.all([sessionsApi.list(), papersApi.list()])
+      .then(([s, p]) => {
+        setSessions(s);
+        setPapers(p);
+        if (s.length > 0) setActiveSession(s[0]);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (err.message.includes("Unauthorized")) {
+          router.replace("/login");
+        } else {
+          console.error("Failed to load data:", err);
+          setLoading(false);
+        }
+      });
   }, [router]);
 
   async function handleNewChat() {

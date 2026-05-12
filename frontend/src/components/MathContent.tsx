@@ -8,9 +8,6 @@ interface Props {
   content: string;
 }
 
-// Matches all LaTeX delimiters in order of priority (longer patterns first)
-// $$...$$ and \[...\] = block math
-// $...$ and \(...\) = inline math
 const MATH_PATTERN =
   /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[^\$\n]+?\$)/g;
 
@@ -22,7 +19,7 @@ function extractMath(match: string): string {
   if (match.startsWith("$$")) return match.slice(2, -2).trim();
   if (match.startsWith("\\[")) return match.slice(2, -2).trim();
   if (match.startsWith("\\(")) return match.slice(2, -2).trim();
-  return match.slice(1, -1).trim(); // $...$
+  return match.slice(1, -1).trim();
 }
 
 const MD_COMPONENTS = {
@@ -39,44 +36,87 @@ const MD_COMPONENTS = {
   li: ({ children }: any) => <li className="ml-4 list-disc">{children}</li>,
 };
 
-function renderWithMath(content: string): React.ReactNode {
+function renderInlineWithMath(text: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let key = 0;
   let match: RegExpExecArray | null;
 
   MATH_PATTERN.lastIndex = 0;
-  while ((match = MATH_PATTERN.exec(content)) !== null) {
+  while ((match = MATH_PATTERN.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      const text = content.slice(lastIndex, match.index);
-      parts.push(
-        <ReactMarkdown key={`t${key++}`} remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-          {text}
-        </ReactMarkdown>
-      );
+      parts.push(text.slice(lastIndex, match.index));
     }
 
     const math = extractMath(match[0]);
-    if (isBlock(match[0])) {
-      parts.push(
-        <div key={`m${key++}`} className="my-3 overflow-x-auto text-center">
-          <BlockMath math={math} />
-        </div>
-      );
-    } else {
+    if (!isBlock(match[0])) {
       parts.push(<InlineMath key={`m${key++}`} math={math} />);
     }
 
     lastIndex = MATH_PATTERN.lastIndex;
   }
 
-  if (lastIndex < content.length) {
-    parts.push(
-      <ReactMarkdown key={`t${key++}`} remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-        {content.slice(lastIndex)}
-      </ReactMarkdown>
-    );
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
   }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function renderWithMath(content: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const paragraphs = content.split(/\n\n+/);
+  let key = 0;
+
+  paragraphs.forEach((para, idx) => {
+    const lines = para.split("\n");
+    const processedLines: React.ReactNode[] = [];
+
+    lines.forEach((line, lineIdx) => {
+      const blockMatches = Array.from(line.matchAll(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g));
+
+      if (blockMatches.length > 0) {
+        let lastIndex = 0;
+        blockMatches.forEach((match) => {
+          if (match.index! > lastIndex) {
+            processedLines.push(
+              <ReactMarkdown key={`t${key++}`} remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                {line.slice(lastIndex, match.index)}
+              </ReactMarkdown>
+            );
+          }
+
+          const math = extractMath(match[0]);
+          processedLines.push(
+            <div key={`m${key++}`} className="my-3 overflow-x-auto text-center">
+              <BlockMath math={math} />
+            </div>
+          );
+          lastIndex = match.index! + match[0].length;
+        });
+
+        if (lastIndex < line.length) {
+          processedLines.push(
+            <ReactMarkdown key={`t${key++}`} remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+              {line.slice(lastIndex)}
+            </ReactMarkdown>
+          );
+        }
+      } else {
+        processedLines.push(
+          <span key={`t${key++}`} className="inline">
+            {renderInlineWithMath(line)}
+          </span>
+        );
+      }
+    });
+
+    parts.push(
+      <p key={`p${idx}`} className="mb-2 last:mb-0">
+        {processedLines}
+      </p>
+    );
+  });
 
   return <>{parts}</>;
 }

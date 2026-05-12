@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
 import LeftSidebar from "@/components/LeftSidebar";
 import ChatPanel from "@/components/ChatPanel";
 import RightSidebar from "@/components/RightSidebar";
@@ -16,11 +15,6 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.replace("/login");
-      return;
-    }
-
     Promise.all([sessionsApi.list(), papersApi.list()])
       .then(([s, p]) => {
         setSessions(s);

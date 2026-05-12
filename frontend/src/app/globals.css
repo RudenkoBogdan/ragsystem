@@ -14,6 +14,14 @@ body {
   padding: 0;
 }
 
+/* Display (block) math: center and add vertical spacing */
+.math.math-display {
+  display: block;
+  text-align: center;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

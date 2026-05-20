@@ -25,71 +25,78 @@ A full-stack application for querying scientific papers using Retrieval-Augmente
 | arXiv | arxiv library + PyMuPDF for PDF parsing |
 | Container | Docker + docker-compose |
 
-## Architecture
+## How it works
+
+Here's the big picture — what talks to what:
 
 ```mermaid
-flowchart TB
-    User([User])
+flowchart LR
+    User(["👤 You"])
 
-    subgraph Frontend["Frontend (Next.js 15 / TS / Tailwind)"]
-        UI["UI Pages<br/>login · register · chat · settings"]
-        Sidebar["Papers Sidebar"]
-        ChatView["Chat View<br/>(streaming + LaTeX/KaTeX)"]
+    subgraph App["🖥️ Web App · Next.js"]
+        UI["Chat &amp; Library"]
     end
 
-    subgraph Backend["Backend (FastAPI / Python 3.11)"]
-        API["main.py · REST API"]
-        Auth["auth/<br/>JWT + argon2"]
-        Papers["papers/<br/>arXiv ingest + PyMuPDF"]
-        Chat["chat/<br/>RAG service · streaming"]
-        Vector["vector/<br/>ChromaDB client"]
+    subgraph Server["⚙️ Backend · FastAPI"]
+        Auth["🔐 Auth"]
+        Papers["📄 Papers"]
+        Chat["💬 Chat / RAG"]
     end
 
-    subgraph Storage["Persistent Storage"]
-        SQLite[("SQLite<br/>users · papers · sessions · messages")]
-        Chroma[("ChromaDB<br/>embeddings + chunks")]
-        PDFs[("data/pdfs<br/>downloaded papers")]
+    subgraph Data["💾 Your data (local)"]
+        DB[("SQLite<br/>accounts · papers · chats")]
+        Vec[("ChromaDB<br/>paper embeddings")]
+        Files[("PDF files")]
     end
 
-    subgraph External["External Services"]
-        ArXiv["arXiv.org"]
-        OpenRouter["OpenRouter API<br/>(any LLM)"]
-        Embed["sentence-transformers<br/>(local embeddings)"]
+    subgraph Web["🌍 Internet"]
+        Arxiv["arXiv.org"]
+        LLM["OpenRouter LLM"]
     end
 
-    User -->|HTTPS| UI
-    UI --> Sidebar
-    UI --> ChatView
+    User <--> UI
+    UI <--> Auth
+    UI <--> Papers
+    UI <--> Chat
 
-    Sidebar -->|"/api/papers"| API
-    ChatView -->|"/api/chat/* (SSE stream)"| API
-    UI -->|"/api/auth/*"| API
+    Auth --> DB
+    Papers --> DB
+    Papers --> Files
+    Papers --> Arxiv
+    Papers --> Vec
 
-    API --> Auth
-    API --> Papers
-    API --> Chat
+    Chat --> DB
+    Chat --> Vec
+    Chat <--> LLM
 
-    Auth --> SQLite
-    Papers --> SQLite
-    Papers --> PDFs
-    Papers -->|fetch metadata + PDF| ArXiv
-    Papers -->|chunk + embed| Embed
-    Papers -->|upsert vectors| Vector
+    classDef user fill:#fef3c7,stroke:#f59e0b,color:#000
+    classDef app fill:#dbeafe,stroke:#3b82f6,color:#000
+    classDef srv fill:#e0e7ff,stroke:#6366f1,color:#000
+    classDef data fill:#dcfce7,stroke:#16a34a,color:#000
+    classDef ext fill:#fce7f3,stroke:#ec4899,color:#000
 
-    Chat --> SQLite
-    Chat -->|query top-k| Vector
-    Chat -->|prompt + context| OpenRouter
-    OpenRouter -->|token stream| Chat
-    Chat -.->|SSE| ChatView
-
-    Vector --> Chroma
+    class User user
+    class UI app
+    class Auth,Papers,Chat srv
+    class DB,Vec,Files data
+    class Arxiv,LLM ext
 ```
 
-**Request flows**
+### 📥 Adding a paper
 
-- **Ingest**: user submits arXiv URL → backend downloads PDF → PyMuPDF extracts text → chunked + embedded via `sentence-transformers` → vectors stored in ChromaDB, metadata in SQLite.
-- **Chat**: user message → embed query → ChromaDB top-k retrieval → prompt assembled with context → OpenRouter LLM streamed back over SSE → rendered with KaTeX in the UI.
-- **Auth**: JWT issued on login (argon2 hash); the token gates every `/api/*` route.
+1. You paste an arXiv URL in the sidebar.
+2. The backend downloads the PDF and pulls the paper's metadata.
+3. The text is split into small chunks and turned into embeddings — locally, with `sentence-transformers`.
+4. Embeddings land in ChromaDB; the paper shows up in your library.
+
+### 💬 Asking a question
+
+1. You type a question in chat.
+2. The backend embeds your question and finds the most relevant chunks across your papers (ChromaDB top-k search).
+3. Those chunks plus your question are sent to the LLM via OpenRouter.
+4. The answer streams back token-by-token, with clickable citations that jump to the exact PDF page.
+
+> 🔐 Your account is gated by a JWT issued at login (password hashed with argon2). Everything except registration and login requires that token.
 
 ## Quick Start
 

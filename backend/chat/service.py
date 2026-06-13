@@ -11,6 +11,65 @@ from config import settings
 IN_DOCKER = os.path.exists("/.dockerenv")
 
 
+class ThinkFilter:
+    """Strips a leading <think>...</think> reasoning block from a token stream.
+
+    Reasoning models (e.g. Qwen3) emit their chain-of-thought wrapped in
+    <think> tags before the actual answer. For RAG we don't want to show it,
+    so we buffer the leading tokens until we can decide, then pass the rest
+    through unchanged."""
+
+    OPEN = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self.buf = ""
+        self.done = False
+        self.emitted = False
+
+    def _emit(self, text: str) -> str:
+        # Trim leading whitespace until the first real character of the answer.
+        if not self.emitted:
+            text = text.lstrip()
+            if text:
+                self.emitted = True
+        return text
+
+    def feed(self, text: str) -> str:
+        if self.done:
+            return self._emit(text)
+        self.buf += text
+        s = self.buf.lstrip()
+        # Buffer is still a prefix of "<think>" (incl. empty/whitespace) — wait.
+        if self.OPEN.startswith(s):
+            return ""
+        if s.startswith(self.OPEN):
+            idx = self.buf.find(self.CLOSE)
+            if idx == -1:
+                return ""  # still inside the think block, keep buffering
+            out = self.buf[idx + len(self.CLOSE):]
+            self.buf = ""
+            self.done = True
+            return self._emit(out)
+        # Definitely no think block — flush everything.
+        out = self.buf
+        self.buf = ""
+        self.done = True
+        return self._emit(out)
+
+    def flush(self) -> str:
+        if self.done:
+            return ""
+        out = self.buf
+        self.buf = ""
+        self.done = True
+        return self._emit(out)
+
+
+def _resolve_provider(provider: Optional[str]) -> str:
+    return (provider or settings.llm_provider or "openrouter").lower()
+
+
 def _resolve_base_url(base_url: str) -> str:
     """When running inside Docker, localhost refers to the container itself.
     Rewrite it to host.docker.internal so the backend can reach a service
@@ -26,7 +85,7 @@ def _resolve_endpoint(provider: str, base_url: Optional[str], api_key: Optional[
     Both OpenRouter and Ollama expose an OpenAI-compatible
     /chat/completions endpoint, so only the base URL and auth differ.
     """
-    provider = (provider or settings.llm_provider or "openrouter").lower()
+    provider = _resolve_provider(provider)
 
     if provider == "ollama":
         effective_base = base_url or settings.ollama_base_url
@@ -124,6 +183,12 @@ async def stream_rag_response(
     # Resolve endpoint, auth and model based on the selected provider
     url, headers, effective_model = _resolve_endpoint(provider, base_url, api_key, model)
 
+    # For local reasoning models (Qwen3 via Ollama) disable chain-of-thought:
+    # RAG answers don't need it and it slows generation considerably.
+    is_ollama = _resolve_provider(provider) == "ollama"
+    if is_ollama:
+        system = f"{system}\n\n/no_think"
+
     payload = {
         "model": effective_model,
         "messages": [{"role": "system", "content": system}, *messages],
@@ -131,6 +196,8 @@ async def stream_rag_response(
         "stream": True,
         "temperature": 0.7,
     }
+
+    think_filter = ThinkFilter()
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as response:
@@ -152,8 +219,15 @@ async def stream_rag_response(
                     if "choices" in data and data["choices"]:
                         delta = data["choices"][0].get("delta", {})
                         if "content" in delta and delta["content"]:
-                            yield f"data: {json.dumps({'type': 'token', 'content': delta['content']})}\n\n"
+                            visible = think_filter.feed(delta["content"])
+                            if visible:
+                                yield f"data: {json.dumps({'type': 'token', 'content': visible})}\n\n"
                 except (json.JSONDecodeError, KeyError, IndexError):
                     pass
+
+    # Flush any buffered content (e.g. a response with no think block at all)
+    tail = think_filter.flush()
+    if tail:
+        yield f"data: {json.dumps({'type': 'token', 'content': tail})}\n\n"
 
     yield f"data: {json.dumps({'type': 'done', 'sources': unique_sources})}\n\n"

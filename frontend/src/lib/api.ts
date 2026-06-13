@@ -64,12 +64,16 @@ export function sendMessageStream(
   onDone: (sources: Message["sources"]) => void,
   onError: (err: string) => void,
   apiKey?: string,
-  model?: string
+  model?: string,
+  provider?: string,
+  baseUrl?: string
 ): void {
   const token = getToken();
   const body: any = { content };
   if (apiKey) body.api_key = apiKey;
   if (model) body.model = model;
+  if (provider) body.provider = provider;
+  if (baseUrl) body.base_url = baseUrl;
 
   fetch(`${BASE}/api/chat/sessions/${sessionId}/messages`, {
     method: "POST",

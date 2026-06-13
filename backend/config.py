@@ -24,9 +24,14 @@ else:
 
 
 class Settings(BaseSettings):
-    anthropic_api_key: str
+    anthropic_api_key: str = ""
     claude_model: str = "anthropic/claude-3-5-sonnet"
-    openrouter_base_url: str = "https://openrouter.io/api/v1"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Local model provider (e.g. Ollama via its OpenAI-compatible endpoint)
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3"
+    # Default provider: "openrouter" or "ollama"
+    llm_provider: str = "openrouter"
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7

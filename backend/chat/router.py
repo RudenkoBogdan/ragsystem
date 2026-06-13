@@ -129,7 +129,9 @@ async def send_message(
             body.content,
             history,
             api_key=body.api_key,
-            model=body.model
+            model=body.model,
+            provider=body.provider,
+            base_url=body.base_url,
         ):
             yield chunk
             # Parse done event to capture sources

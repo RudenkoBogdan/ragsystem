@@ -1,45 +1,91 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
 
-const MODELS = [
-  "gpt-4o",
-  "gpt-4-turbo",
-  "gpt-3.5-turbo",
+type Provider = "openrouter" | "ollama";
+
+const OPENROUTER_MODELS = [
+  "anthropic/claude-3-5-sonnet",
+  "openai/gpt-4o",
+  "openai/gpt-4-turbo",
   "meta-llama/llama-3.1-70b-instruct",
-  "meta-llama/llama-2-70b-chat",
+  "google/gemini-flash-1.5",
 ];
+
+const DEFAULT_OLLAMA_URL = "http://localhost:11434/v1";
 
 export default function Settings() {
   const router = useRouter();
-  const [model, setModel] = useState("gpt-4o");
+  const [provider, setProvider] = useState<Provider>("openrouter");
+
+  // OpenRouter
+  const [model, setModel] = useState("anthropic/claude-3-5-sonnet");
   const [apiKey, setApiKey] = useState("");
+
+  // Ollama
+  const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
+  const [ollamaModel, setOllamaModel] = useState("llama3");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [fetchError, setFetchError] = useState("");
+
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedModel = localStorage.getItem("openrouter_model") || "gpt-4o";
-    const savedKey = localStorage.getItem("openrouter_api_key") || "";
-    setModel(savedModel);
-    setApiKey(savedKey);
+    setProvider((localStorage.getItem("llm_provider") as Provider) || "openrouter");
+    setModel(localStorage.getItem("openrouter_model") || "anthropic/claude-3-5-sonnet");
+    setApiKey(localStorage.getItem("openrouter_api_key") || "");
+    setOllamaUrl(localStorage.getItem("ollama_base_url") || DEFAULT_OLLAMA_URL);
+    setOllamaModel(localStorage.getItem("ollama_model") || "llama3");
     setIsLoading(false);
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem("openrouter_model", model);
-    if (apiKey) {
-      localStorage.setItem("openrouter_api_key", apiKey);
+  // Fetch installed Ollama models from the local daemon (browser → host).
+  // Strips the /v1 suffix to hit Ollama's native /api/tags endpoint.
+  const fetchOllamaModels = async () => {
+    setFetchingModels(true);
+    setFetchError("");
+    try {
+      const root = ollamaUrl.replace(/\/v1\/?$/, "");
+      const res = await fetch(`${root}/api/tags`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const names = (data.models || []).map((m: any) => m.name);
+      setOllamaModels(names);
+      if (names.length > 0 && !names.includes(ollamaModel)) {
+        setOllamaModel(names[0]);
+      }
+    } catch (e: any) {
+      setFetchError(
+        `Не удалось получить список моделей (${e.message}). Убедитесь, что Ollama запущена и доступна по этому адресу.`
+      );
+    } finally {
+      setFetchingModels(false);
     }
+  };
+
+  const handleSave = () => {
+    localStorage.setItem("llm_provider", provider);
+    localStorage.setItem("openrouter_model", model);
+    if (apiKey) localStorage.setItem("openrouter_api_key", apiKey);
+    localStorage.setItem("ollama_base_url", ollamaUrl);
+    localStorage.setItem("ollama_model", ollamaModel);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
   };
 
   const handleReset = () => {
-    localStorage.removeItem("openrouter_model");
-    localStorage.removeItem("openrouter_api_key");
-    setModel("gpt-4o");
+    ["llm_provider", "openrouter_model", "openrouter_api_key", "ollama_base_url", "ollama_model"].forEach(
+      (k) => localStorage.removeItem(k)
+    );
+    setProvider("openrouter");
+    setModel("anthropic/claude-3-5-sonnet");
     setApiKey("");
+    setOllamaUrl(DEFAULT_OLLAMA_URL);
+    setOllamaModel("llama3");
+    setOllamaModels([]);
   };
 
   if (isLoading) {
@@ -49,6 +95,9 @@ export default function Settings() {
       </div>
     );
   }
+
+  const inputClass =
+    "w-full px-3 py-2 rounded-lg bg-bg-secondary border border-border text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -68,53 +117,121 @@ export default function Settings() {
       {/* Content */}
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="space-y-8">
-          {/* Model Selection */}
+          {/* Provider selection */}
           <div>
-            <h2 className="text-lg font-semibold text-text-primary mb-4">Model Configuration</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
-                  LLM Model
-                </label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-bg-secondary border border-border text-text-primary focus:outline-none focus:border-accent-blue transition-colors"
+            <h2 className="text-lg font-semibold text-text-primary mb-4">Provider</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { id: "openrouter", label: "OpenRouter", desc: "Облачные модели по API-ключу" },
+                { id: "ollama", label: "Ollama (локально)", desc: "Локальные модели на вашей машине" },
+              ] as const).map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setProvider(p.id)}
+                  className={`text-left p-4 rounded-lg border transition-colors ${
+                    provider === p.id
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border bg-bg-secondary hover:bg-bg-tertiary"
+                  }`}
                 >
-                  {MODELS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs text-text-muted">
-                  Select which OpenRouter model to use for AI responses
-                </p>
-              </div>
+                  <div className="font-medium text-text-primary">{p.label}</div>
+                  <div className="text-xs text-text-muted mt-1">{p.desc}</div>
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* API Key */}
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary mb-4">OpenRouter API Key</h2>
-            <div className="space-y-4">
+          {/* OpenRouter settings */}
+          {provider === "openrouter" && (
+            <>
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
-                  API Key
-                </label>
+                <h2 className="text-lg font-semibold text-text-primary mb-4">Model Configuration</h2>
+                <label className="block text-sm font-medium text-text-primary mb-2">LLM Model</label>
+                <input
+                  list="openrouter-models"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className={inputClass}
+                  placeholder="anthropic/claude-3-5-sonnet"
+                />
+                <datalist id="openrouter-models">
+                  {OPENROUTER_MODELS.map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+                <p className="mt-2 text-xs text-text-muted">
+                  Выберите или введите имя модели OpenRouter.
+                </p>
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary mb-4">OpenRouter API Key</h2>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="sk-or-v1-..."
-                  className="w-full px-3 py-2 rounded-lg bg-bg-secondary border border-border text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors"
+                  className={inputClass}
                 />
                 <p className="mt-2 text-xs text-text-muted">
-                  Leave empty to use the default server API key. Your custom key is stored locally only.
+                  Оставьте пустым, чтобы использовать серверный ключ по умолчанию. Ключ хранится только локально.
                 </p>
               </div>
-            </div>
-          </div>
+            </>
+          )}
+
+          {/* Ollama settings */}
+          {provider === "ollama" && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary mb-4">Ollama Server</h2>
+                <label className="block text-sm font-medium text-text-primary mb-2">Base URL</label>
+                <input
+                  value={ollamaUrl}
+                  onChange={(e) => setOllamaUrl(e.target.value)}
+                  placeholder={DEFAULT_OLLAMA_URL}
+                  className={inputClass}
+                />
+                <p className="mt-2 text-xs text-text-muted">
+                  Адрес OpenAI-совместимого эндпоинта Ollama. По умолчанию: {DEFAULT_OLLAMA_URL}.
+                  В Docker localhost автоматически заменяется на host.docker.internal.
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-text-primary">Model</h2>
+                  <button
+                    onClick={fetchOllamaModels}
+                    disabled={fetchingModels}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg border border-border text-text-secondary hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${fetchingModels ? "animate-spin" : ""}`} />
+                    Обновить список
+                  </button>
+                </div>
+                <input
+                  list="ollama-models"
+                  value={ollamaModel}
+                  onChange={(e) => setOllamaModel(e.target.value)}
+                  placeholder="llama3"
+                  className={inputClass}
+                />
+                <datalist id="ollama-models">
+                  {ollamaModels.map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+                <p className="mt-2 text-xs text-text-muted">
+                  Имя установленной модели (например, llama3, qwen2.5, mistral). Нажмите «Обновить список»,
+                  чтобы подтянуть модели из Ollama.
+                </p>
+                {fetchError && (
+                  <p className="mt-2 text-xs text-red-400">{fetchError}</p>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-4 border-t border-border">

@@ -79,8 +79,21 @@ export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpda
     }
 
     // Get custom settings from localStorage
-    const customApiKey = typeof window !== "undefined" ? localStorage.getItem("openrouter_api_key") : null;
-    const customModel = typeof window !== "undefined" ? localStorage.getItem("openrouter_model") : null;
+    const ls = typeof window !== "undefined" ? localStorage : null;
+    const provider = ls?.getItem("llm_provider") || "openrouter";
+
+    let customApiKey: string | null = null;
+    let customModel: string | null = null;
+    let customBaseUrl: string | null = null;
+
+    if (provider === "ollama") {
+      customModel = ls?.getItem("ollama_model") || null;
+      customBaseUrl = ls?.getItem("ollama_base_url") || null;
+      customApiKey = ls?.getItem("ollama_api_key") || null;
+    } else {
+      customApiKey = ls?.getItem("openrouter_api_key") || null;
+      customModel = ls?.getItem("openrouter_model") || null;
+    }
 
     sendMessageStream(
       session.id,
@@ -107,7 +120,9 @@ export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpda
         setStreaming(false);
       },
       customApiKey || undefined,
-      customModel || undefined
+      customModel || undefined,
+      provider,
+      customBaseUrl || undefined
     );
   }
 

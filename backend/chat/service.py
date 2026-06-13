@@ -1,9 +1,53 @@
 from __future__ import annotations
 import json
+import os
+import re
 import aiohttp
 from typing import AsyncGenerator, Optional
 from vector.chroma import get_user_collection, embed
 from config import settings
+
+
+IN_DOCKER = os.path.exists("/.dockerenv")
+
+
+def _resolve_base_url(base_url: str) -> str:
+    """When running inside Docker, localhost refers to the container itself.
+    Rewrite it to host.docker.internal so the backend can reach a service
+    (e.g. Ollama) running on the host machine."""
+    if IN_DOCKER:
+        base_url = re.sub(r"(localhost|127\.0\.0\.1)", "host.docker.internal", base_url)
+    return base_url.rstrip("/")
+
+
+def _resolve_endpoint(provider: str, base_url: Optional[str], api_key: Optional[str], model: Optional[str]):
+    """Return (url, headers, model) for the selected provider.
+
+    Both OpenRouter and Ollama expose an OpenAI-compatible
+    /chat/completions endpoint, so only the base URL and auth differ.
+    """
+    provider = (provider or settings.llm_provider or "openrouter").lower()
+
+    if provider == "ollama":
+        effective_base = base_url or settings.ollama_base_url
+        effective_model = model or settings.ollama_model
+        headers = {"Content-Type": "application/json"}
+        # Ollama ignores the key but some setups put it behind a proxy that needs one
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    else:  # openrouter (default)
+        effective_base = base_url or settings.openrouter_base_url
+        effective_model = model or settings.claude_model
+        effective_key = api_key or settings.anthropic_api_key
+        headers = {
+            "Authorization": f"Bearer {effective_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ragsystem.local",
+            "X-Title": "RAG Research Assistant",
+        }
+
+    url = f"{_resolve_base_url(effective_base)}/chat/completions"
+    return url, headers, effective_model
 
 
 def retrieve_context(user_id: int, query: str, paper_ids: Optional[list[int]] = None) -> list[dict]:
@@ -56,6 +100,8 @@ async def stream_rag_response(
     paper_ids: Optional[list[int]] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     chunks = retrieve_context(user_id, question, paper_ids)
     system = build_system_prompt(chunks)
@@ -75,16 +121,8 @@ async def stream_rag_response(
             seen.add(key)
             unique_sources.append(s)
 
-    # Use provided API key or fall back to settings
-    effective_api_key = api_key or settings.anthropic_api_key
-    effective_model = model or settings.claude_model
-
-    headers = {
-        "Authorization": f"Bearer {effective_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://ragsystem.local",
-        "X-Title": "RAG Research Assistant",
-    }
+    # Resolve endpoint, auth and model based on the selected provider
+    url, headers, effective_model = _resolve_endpoint(provider, base_url, api_key, model)
 
     payload = {
         "model": effective_model,
@@ -94,13 +132,11 @@ async def stream_rag_response(
         "temperature": 0.7,
     }
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as response:
             if response.status != 200:
                 error_text = await response.text()
-                raise RuntimeError(f"OpenRouter API error {response.status}: {error_text}")
+                raise RuntimeError(f"LLM API error {response.status} ({url}): {error_text}")
 
             async for line in response.content:
                 line = line.decode("utf-8").strip()

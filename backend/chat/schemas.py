@@ -38,3 +38,5 @@ class SendMessageRequest(BaseModel):
     content: str
     api_key: Optional[str] = None
     model: Optional[str] = None
+    provider: Optional[str] = None  # "openrouter" | "ollama"
+    base_url: Optional[str] = None

@@ -63,6 +63,11 @@ except ImportError:  # pragma: no cover - exercised only by direct execution
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CITATIONS_PATH = os.path.join(BACKEND_DIR, "chat", "citations.py")
+COVERAGE_PATH = os.path.join(BACKEND_DIR, "chat", "coverage.py")
+POLICY_PATH = os.path.join(BACKEND_DIR, "security", "policy.py")
+LOGGING_SETUP_PATH = os.path.join(BACKEND_DIR, "security", "logging_setup.py")
+NETGUARD_PATH = os.path.join(BACKEND_DIR, "security", "netguard.py")
+RATELIMIT_PATH = os.path.join(BACKEND_DIR, "security", "ratelimit.py")
 
 
 # --- shared fixtures --------------------------------------------------------
@@ -704,6 +709,62 @@ class ModuleHygieneTests(unittest.TestCase):
         self.assertTrue(
             self._top_level_imports(CITATIONS_PATH) <= self.ALLOWED_STDLIB,
             "backend/chat/citations.py must stay stdlib-only",
+        )
+
+    def test_coverage_module_imports_only_the_allowed_stdlib(self):
+        # The guarantee above is hardcoded to one file, so a NEW pure module
+        # would otherwise ship with no hygiene cover at all -- and could quietly
+        # reach for a package nobody has installed. `coverage.py` needs only
+        # __future__, re and typing; anything else is a regression.
+        self.assertTrue(
+            self._top_level_imports(COVERAGE_PATH) <= self.ALLOWED_STDLIB,
+            "backend/chat/coverage.py must stay stdlib-only",
+        )
+
+    def test_security_policy_module_imports_only_the_allowed_stdlib(self):
+        # `security/policy.py` holds the boot-time JWT-secret check, the
+        # credential-length policy, the CORS allow-list parser and the
+        # pagination resolver. It is imported by `main.py` *before* anything
+        # else runs, so if it grew a `pydantic` or `config` import it would
+        # stop being an independent check on the very thing that is broken.
+        self.assertTrue(
+            self._top_level_imports(POLICY_PATH) <= self.ALLOWED_STDLIB,
+            "backend/security/policy.py must stay stdlib-only",
+        )
+
+    def test_security_logging_setup_module_imports_only_the_allowed_stdlib(self):
+        # The logging helper is the very first thing `main.py` calls, and it
+        # takes its level as a parameter precisely so it does not need
+        # `from config import settings` (which would drag pydantic-settings
+        # into the boot path). Stdlib-only keeps that promise testable.
+        self.assertTrue(
+            self._top_level_imports(LOGGING_SETUP_PATH) <= self.ALLOWED_STDLIB,
+            "backend/security/logging_setup.py must stay stdlib-only",
+        )
+
+    def test_security_netguard_module_imports_only_the_allowed_stdlib(self):
+        # SEC-1's guard (finding 12). It is the pure half: the URL parser, the
+        # address classifier and the redactors, with the half that needs
+        # `asyncio` living in `chat/service.py::_guarded_endpoint`. Every one of
+        # its rules is executed by `test_netguard.py` on a bare Python, and that
+        # is only true for as long as the module itself stays importable with
+        # nothing installed -- a `requests` or `httpx` import here would make the
+        # guard's test suite unrunnable and silently take the control offline.
+        self.assertTrue(
+            self._top_level_imports(NETGUARD_PATH) <= self.ALLOWED_STDLIB,
+            "backend/security/netguard.py must stay stdlib-only",
+        )
+
+    def test_security_ratelimit_module_imports_only_the_allowed_stdlib(self):
+        # SEC-4's limiter (finding 15). It runs on an *unauthenticated* endpoint
+        # and inside the auth failure path, so it must not be able to fail by
+        # reaching for a logger, a settings object or an HTTP client -- all three
+        # are third-party or project imports that would make it unrunnable in the
+        # only environment this suite can execute in. `math` and `threading` are
+        # stdlib and are on the allow-list above for exactly this module.
+        self.assertTrue(
+            self._top_level_imports(RATELIMIT_PATH) <= self.ALLOWED_STDLIB,
+            "backend/security/ratelimit.py must stay stdlib-only",
         )
 
     def test_test_package_imports_only_stdlib_or_first_party(self):

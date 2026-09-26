@@ -190,6 +190,16 @@ class BuildSystemPromptMappingTests(unittest.TestCase):
         self.assertIn("Use ONLY the provided context", prompt)
         self.assertIn("Context:", prompt)
 
+    def test_empty_branch_forbids_answering_from_memory(self):
+        # The old wording ended "then answer based on your general knowledge if
+        # helpful" -- an instruction to produce a confident, source-free answer
+        # in precisely the case where there is no evidence. `stream_rag_response`
+        # now refuses before the LLM is ever called, so this branch is
+        # defence-in-depth; the phrase must not come back in any rewording.
+        prompt, _groups = BUILD_SYSTEM_PROMPT([])
+        self.assertNotIn("general knowledge", prompt)
+        self.assertIn("No relevant papers", prompt)
+
     def test_non_empty_branch_never_permits_general_knowledge(self):
         prompt, _groups = BUILD_SYSTEM_PROMPT(DUPLICATE_PAGE_CHUNKS)
         self.assertNotIn("general knowledge", prompt)

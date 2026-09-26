@@ -1,20 +1,25 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, X } from "lucide-react";
 import { sessionsApi, sendMessageStream } from "@/lib/api";
-import type { ChatSession, Message } from "@/types";
+import type { ChatSession, Message, Paper } from "@/types";
 import MessageBubble from "./MessageBubble";
 
 interface Props {
   session: ChatSession | null;
   onSessionCreate: () => void;
   onSessionTitleUpdate: (id: number, title: string) => void;
+  /** Papers retrieval is currently restricted to. Empty means whole library. */
+  scopedPapers: Paper[];
+  onScopeChange: (ids: number[]) => void;
 }
 
 export default function ChatPanel({
   session,
   onSessionCreate,
   onSessionTitleUpdate,
+  scopedPapers,
+  onScopeChange,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -93,6 +98,10 @@ export default function ChatPanel({
       customModel = ls?.getItem("openrouter_model") || null;
     }
 
+    // Snapshot the scope as it was when the question was asked, so the chips
+    // cannot shift under the answer that is still streaming.
+    const sentScopeIds = scopedPapers.map((p) => p.id);
+
     sendMessageStream(
       session.id,
       userContent,
@@ -131,6 +140,7 @@ export default function ChatPanel({
         model: customModel || undefined,
         provider,
         baseUrl: customBaseUrl || undefined,
+        paperIds: sentScopeIds,
       }
     );
   }
@@ -173,6 +183,30 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
+      {/* Scope */}
+      {scopedPapers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-bg-secondary px-4 py-2">
+          <span className="text-xs text-text-muted">Searching only</span>
+          {scopedPapers.map((paper) => (
+            <span
+              key={paper.id}
+              className="flex max-w-[16rem] items-center gap-1 rounded-full bg-accent-blue/15 px-2 py-0.5 text-xs text-text-primary"
+            >
+              <span className="truncate">{paper.title}</span>
+              <button
+                type="button"
+                onClick={() => onScopeChange(scopedPapers.filter((p) => p.id !== paper.id).map((p) => p.id))}
+                title={`Stop searching only ${paper.title}`}
+                aria-label={`Stop searching only ${paper.title}`}
+                className="flex-shrink-0 text-text-muted hover:text-text-primary"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="border-t border-border bg-bg-secondary px-4 py-4">
         <div className="flex items-center gap-3 rounded-xl border border-border bg-bg-tertiary px-4 py-3 focus-within:border-accent-blue transition-colors">
@@ -181,7 +215,11 @@ export default function ChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about your papers... (Enter to send, Shift+Enter for newline)"
+            placeholder={
+              scopedPapers.length > 0
+                ? "Ask about the selected paper(s)... (Enter to send)"
+                : "Ask about your papers... (Enter to send, Shift+Enter for newline)"
+            }
             rows={1}
             disabled={streaming}
             className="flex-1 resize-none bg-transparent text-sm text-text-primary placeholder-text-muted outline-none disabled:opacity-50"

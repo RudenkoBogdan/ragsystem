@@ -8,9 +8,18 @@ interface Props {
   papers: Paper[];
   onAddPaper: (paper: Paper) => void;
   onDeletePaper: (id: number) => void;
+  /** Ids retrieval is currently restricted to. Empty means whole library. */
+  scopedPaperIds: number[];
+  onToggleScope: (id: number) => void;
 }
 
-export default function RightSidebar({ papers, onAddPaper, onDeletePaper }: Props) {
+export default function RightSidebar({
+  papers,
+  onAddPaper,
+  onDeletePaper,
+  scopedPaperIds,
+  onToggleScope,
+}: Props) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -96,6 +105,15 @@ export default function RightSidebar({ papers, onAddPaper, onDeletePaper }: Prop
         </form>
       </div>
 
+      {/* Scope summary */}
+      <div className="border-b border-border px-3 py-2 text-xs text-text-muted">
+        {scopedPaperIds.length === 0
+          ? "Questions search your whole library. Use Scope on a paper to narrow it."
+          : `Questions search ${scopedPaperIds.length} selected paper${
+              scopedPaperIds.length === 1 ? "" : "s"
+            }. Remove the scope above the composer to search everything.`}
+      </div>
+
       {/* Papers list */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
         {papers.length === 0 && (
@@ -106,18 +124,39 @@ export default function RightSidebar({ papers, onAddPaper, onDeletePaper }: Prop
           </div>
         )}
         {papers.map((paper) => (
-          <PaperCard key={paper.id} paper={paper} onDelete={onDeletePaper} />
+          <PaperCard
+            key={paper.id}
+            paper={paper}
+            onDelete={onDeletePaper}
+            scoped={scopedPaperIds.includes(paper.id)}
+            onToggleScope={onToggleScope}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function PaperCard({ paper, onDelete }: { paper: Paper; onDelete: (id: number) => void }) {
+function PaperCard({
+  paper,
+  onDelete,
+  scoped,
+  onToggleScope,
+}: {
+  paper: Paper;
+  onDelete: (id: number) => void;
+  scoped: boolean;
+  onToggleScope: (id: number) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-lg border border-border bg-bg-tertiary p-3 group">
+    <div
+      className={
+        "rounded-lg border bg-bg-tertiary p-3 group " +
+        (scoped ? "border-accent-blue" : "border-border")
+      }
+    >
       <div className="flex items-start justify-between gap-2 min-w-0">
         <button
           className="flex-1 text-left min-w-0"
@@ -134,7 +173,25 @@ function PaperCard({ paper, onDelete }: { paper: Paper; onDelete: (id: number) =
             <span className="text-xs text-text-muted font-mono break-all">{paper.arxiv_id}</span>
           </div>
         </button>
-        <div className="flex gap-1 flex-shrink-0">
+        <div className="flex gap-1 flex-shrink-0 items-center">
+          <button
+            type="button"
+            onClick={() => onToggleScope(paper.id)}
+            aria-pressed={scoped}
+            title={
+              scoped
+                ? "Stop searching only this paper"
+                : "Search only this paper when you ask a question"
+            }
+            className={
+              "h-6 rounded px-1.5 text-[10px] font-medium transition-colors " +
+              (scoped
+                ? "bg-accent-blue text-white"
+                : "bg-bg-secondary text-text-muted hover:text-accent-blue")
+            }
+          >
+            {scoped ? "Scoped" : "Scope"}
+          </button>
           {paper.url && (
             <a
               href={paper.url}

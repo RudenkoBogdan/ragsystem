@@ -12,7 +12,20 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
+  // Papers retrieval is restricted to. Empty = whole library, which is the
+  // default and matches what the backend does when `paper_ids` is absent.
+  const [scopedPaperIds, setScopedPaperIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // A paper that has been deleted cannot stay in the scope, or the request
+  // would name an id that no longer exists.
+  const scopedPapers = papers.filter((p) => scopedPaperIds.includes(p.id));
+
+  function handleToggleScope(id: number) {
+    setScopedPaperIds((prev) =>
+      prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id]
+    );
+  }
 
   useEffect(() => {
     Promise.all([sessionsApi.list(), papersApi.list()])
@@ -46,6 +59,12 @@ export default function ChatPage() {
     }
   }
 
+  function handleSelectSession(session: ChatSession) {
+    setActiveSession(session);
+    // The scope is a property of the question, not of the conversation, so it
+    // deliberately survives switching chats.
+  }
+
   function handleSessionTitleUpdate(id: number, title: string) {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
   }
@@ -57,6 +76,7 @@ export default function ChatPage() {
   async function handleDeletePaper(id: number) {
     await papersApi.remove(id);
     setPapers((prev) => prev.filter((p) => p.id !== id));
+    setScopedPaperIds((prev) => prev.filter((existing) => existing !== id));
   }
 
   if (loading) {
@@ -72,7 +92,7 @@ export default function ChatPage() {
       <LeftSidebar
         sessions={sessions}
         activeSession={activeSession}
-        onSelectSession={setActiveSession}
+        onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
       />
@@ -80,8 +100,16 @@ export default function ChatPage() {
         session={activeSession}
         onSessionCreate={handleNewChat}
         onSessionTitleUpdate={handleSessionTitleUpdate}
+        scopedPapers={scopedPapers}
+        onScopeChange={setScopedPaperIds}
       />
-      <RightSidebar papers={papers} onAddPaper={handleAddPaper} onDeletePaper={handleDeletePaper} />
+      <RightSidebar
+        papers={papers}
+        onAddPaper={handleAddPaper}
+        onDeletePaper={handleDeletePaper}
+        scopedPaperIds={scopedPaperIds}
+        onToggleScope={handleToggleScope}
+      />
     </div>
   );
 }

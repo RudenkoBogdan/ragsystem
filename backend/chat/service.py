@@ -6,6 +6,7 @@ import aiohttp
 from typing import AsyncGenerator, Optional
 from vector.chroma import get_user_collection, embed
 from config import settings
+from .citations import group_citations, extract_citations
 
 
 IN_DOCKER = os.path.exists("/.dockerenv")
@@ -124,32 +125,51 @@ def retrieve_context(user_id: int, query: str, paper_ids: Optional[list[int]] = 
         include=["documents", "metadatas", "distances"],
     )
 
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = (results.get("distances") or [[]])[0] or []
+
     chunks = []
-    for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
-        chunks.append({"text": doc, "title": meta["title"], "arxiv_id": meta["arxiv_id"], "page": meta["page"]})
+    for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+        score = None
+        if i < len(distances) and distances[i] is not None:
+            try:
+                score = round(1.0 - float(distances[i]), 4)
+            except (TypeError, ValueError):
+                score = None
+        chunks.append({
+            "text": doc,
+            "title": meta["title"],
+            "arxiv_id": meta["arxiv_id"],
+            "page": meta["page"],
+            "score": score,
+        })
     return chunks
 
 
-def build_system_prompt(chunks: list[dict]) -> str:
+def build_system_prompt(chunks: list[dict]) -> tuple[str, list[dict]]:
     if not chunks:
         return (
             "You are a research assistant. No relevant papers were found in the library. "
-            "Tell the user to add papers first, then answer based on your general knowledge if helpful."
+            "Tell the user to add papers first, then answer based on your general knowledge if helpful.",
+            [],
         )
 
+    groups = group_citations(chunks)
     context_parts = []
-    for i, chunk in enumerate(chunks, 1):
+    for group in groups:
         context_parts.append(
-            f"[{i}] Source: \"{chunk['title']}\", page {chunk['page']}\n{chunk['text']}"
+            f"[{group['label']}] Source: \"{group['title']}\", page {group['page']}\n{group['text']}"
         )
     context = "\n\n---\n\n".join(context_parts)
 
-    return f"""You are a research assistant helping with scientific papers.
+    prompt = f"""You are a research assistant helping with scientific papers.
 Use ONLY the provided context to answer the user's question. Cite sources by their number [1], [2], etc.
 If the context doesn't contain enough information, say so clearly.
 
 Context:
 {context}"""
+    return prompt, groups
 
 
 async def stream_rag_response(
@@ -163,22 +183,22 @@ async def stream_rag_response(
     base_url: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     chunks = retrieve_context(user_id, question, paper_ids)
-    system = build_system_prompt(chunks)
+    system, groups = build_system_prompt(chunks)
 
     messages = [*history, {"role": "user", "content": question}]
 
     sources = [
-        {"title": c["title"], "arxiv_id": c["arxiv_id"], "page": c["page"]}
-        for c in chunks
+        {
+            "label": group["label"],
+            "title": group["title"],
+            "arxiv_id": group["arxiv_id"],
+            "page": group["page"],
+            "snippet": group["text"][:400],
+            "score": group["score"],
+            "chunk_count": group["chunk_count"],
+        }
+        for group in groups
     ]
-    # Deduplicate sources
-    seen = set()
-    unique_sources = []
-    for s in sources:
-        key = (s["arxiv_id"], s["page"])
-        if key not in seen:
-            seen.add(key)
-            unique_sources.append(s)
 
     # Resolve endpoint, auth and model based on the selected provider
     url, headers, effective_model = _resolve_endpoint(provider, base_url, api_key, model)
@@ -198,6 +218,7 @@ async def stream_rag_response(
     }
 
     think_filter = ThinkFilter()
+    answer_parts = []
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as response:
@@ -221,6 +242,7 @@ async def stream_rag_response(
                         if "content" in delta and delta["content"]:
                             visible = think_filter.feed(delta["content"])
                             if visible:
+                                answer_parts.append(visible)
                                 yield f"data: {json.dumps({'type': 'token', 'content': visible})}\n\n"
                 except (json.JSONDecodeError, KeyError, IndexError):
                     pass
@@ -228,6 +250,10 @@ async def stream_rag_response(
     # Flush any buffered content (e.g. a response with no think block at all)
     tail = think_filter.flush()
     if tail:
+        answer_parts.append(tail)
         yield f"data: {json.dumps({'type': 'token', 'content': tail})}\n\n"
 
-    yield f"data: {json.dumps({'type': 'done', 'sources': unique_sources})}\n\n"
+    cited, unresolved = extract_citations(
+        "".join(answer_parts), [group["label"] for group in groups]
+    )
+    yield f"data: {json.dumps({'type': 'done', 'sources': sources, 'cited': cited, 'unresolved': unresolved})}\n\n"

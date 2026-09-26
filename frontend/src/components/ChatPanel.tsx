@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send, MessageSquare, Download } from "lucide-react";
+import { Send, MessageSquare } from "lucide-react";
 import { sessionsApi, sendMessageStream } from "@/lib/api";
 import type { ChatSession, Message } from "@/types";
 import MessageBubble from "./MessageBubble";
@@ -11,7 +11,11 @@ interface Props {
   onSessionTitleUpdate: (id: number, title: string) => void;
 }
 
-export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpdate }: Props) {
+export default function ChatPanel({
+  session,
+  onSessionCreate,
+  onSessionTitleUpdate,
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -34,12 +38,6 @@ export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpda
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  const openSourcePDF = (source: Message["sources"][0]) => {
-    // Open arxiv PDF at specific page
-    const pdfUrl = `https://arxiv.org/pdf/${source.arxiv_id}.pdf#page=${source.page}`;
-    window.open(pdfUrl, "_blank");
-  };
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -105,24 +103,35 @@ export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpda
           )
         );
       },
-      (sources) => {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsg.id ? { ...m, sources } : m))
-        );
-        setStreaming(false);
-      },
-      (err) => {
+      (sources, meta) => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: `Error: ${err}` } : m
+            m.id === assistantMsg.id
+              ? { ...m, sources, citationMeta: meta.citationMeta, retrieval: meta.retrieval }
+              : m
           )
         );
         setStreaming(false);
       },
-      customApiKey || undefined,
-      customModel || undefined,
-      provider,
-      customBaseUrl || undefined
+      (err) => {
+        // Appended, not substituted: a stream that dies halfway has already
+        // produced real output, and throwing it away to show only an error
+        // would be the least useful thing to do with it.
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantMsg.id) return m;
+            const prefix = m.content.trim() ? `${m.content}\n\n` : "";
+            return { ...m, content: `${prefix}_Request failed: ${err}_` };
+          })
+        );
+        setStreaming(false);
+      },
+      {
+        apiKey: customApiKey || undefined,
+        model: customModel || undefined,
+        provider,
+        baseUrl: customBaseUrl || undefined,
+      }
     );
   }
 
@@ -159,11 +168,7 @@ export default function ChatPanel({ session, onSessionCreate, onSessionTitleUpda
           </div>
         )}
         {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onSourceClick={(source) => openSourcePDF(source)}
-          />
+          <MessageBubble key={msg.id} message={msg} />
         ))}
         <div ref={bottomRef} />
       </div>

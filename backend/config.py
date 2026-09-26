@@ -42,6 +42,50 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 64
 
+    # --- security (added by the security-hardening series) -------------------
+    # Every default below is the SAFE one. None of them weakens anything that
+    # already worked; they only stop a deployment from silently keeping a
+    # state the auditor flagged as exploitable.
+
+    # Local-development escape hatch for the boot check in main.py. While this
+    # is false the process refuses to start with the shipped placeholder
+    # JWT_SECRET, so a deployment cannot sign tokens with a constant that is
+    # public in this repository. Never set it true in production.
+    allow_insecure_jwt_secret: bool = False
+
+    # Whether a user-supplied LLM base_url may resolve to loopback, link-local
+    # or private addresses. False removes the authenticated-SSRF read-oracle
+    # against internal services that any registered account could otherwise
+    # aim the server's HTTP client at.
+    llm_allow_private_hosts: bool = False
+
+    # Comma-separated list of browser origins permitted by CORS. Replaces the
+    # previous allow_origins=["*"], which let any web page on the internet read
+    # authenticated API responses on the user's behalf.
+    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    # Only ever true alongside an explicit origin list. Browsers refuse
+    # "Access-Control-Allow-Origin: *" on a credentialed request anyway, so
+    # the old wildcard-plus-credentials pair was misleading as well as unsafe.
+    cors_allow_credentials: bool = False
+
+    # Root level of the `ragapp` logger. DEBUG is the useful value when
+    # diagnosing retrieval or SSE problems; INFO is quiet enough to ship.
+    log_level: str = "INFO"
+
+    # Login throttle, per account. Bounds both the argon2 CPU-burn oracle and
+    # the offline-cracking oracle that an unauthenticated login endpoint is.
+    auth_login_rate_limit: int = 10
+    auth_login_rate_window: int = 60
+    # Login throttle, per source IP. Stops one attacker spraying many accounts
+    # from a single host, which the per-account limit alone would not notice.
+    auth_login_ip_rate_limit: int = 30
+    auth_login_ip_rate_window: int = 60
+    # Registration throttle, per source IP. Self-registration is how an
+    # attacker gets the account they need to attack anything else here.
+    auth_register_rate_limit: int = 5
+    auth_register_rate_window: int = 300
+
     class Config:
         env_file = str(env_path)
 

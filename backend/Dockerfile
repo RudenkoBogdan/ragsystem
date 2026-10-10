@@ -8,20 +8,22 @@ ENV PATH=/venv/bin:$PATH
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Bake the embedding model (~80 MB) into the image instead of downloading it
-# on the first request.
-RUN python -c "from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2 as E; E()(['warmup'])"
+# Bake the embedding model (~240 MB) into the image instead of downloading it
+# on the first request. Must match EMBEDDING_MODEL (config.py).
+ENV FASTEMBED_CACHE_PATH=/models
+RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2').embed(['warmup']))"
 
 # --- runtime ----------------------------------------------------------------
 FROM python:3.11-slim
 
 ENV PATH=/venv/bin:$PATH \
+    FASTEMBED_CACHE_PATH=/models \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 RUN useradd --create-home --uid 1000 app
 COPY --from=build /venv /venv
-COPY --from=build --chown=app /root/.cache/chroma /home/app/.cache/chroma
+COPY --from=build --chown=app /models /models
 
 WORKDIR /app
 COPY --chown=app . .

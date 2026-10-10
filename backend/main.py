@@ -1,3 +1,5 @@
+import threading
+
 from config import settings
 from security.logging_setup import configure_logging
 
@@ -9,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine, upgrade_schema
 from auth.router import router as auth_router
-from papers.router import router as papers_router, mark_interrupted_ingests_failed
+from papers.router import router as papers_router, mark_interrupted_ingests_failed, reindex_stale_papers
 from chat.router import router as chat_router
 from security.policy import jwt_secret_problem, parse_cors_origins
 
@@ -26,6 +28,7 @@ if _jwt_problem:
 upgrade_schema()
 Base.metadata.create_all(bind=engine)
 mark_interrupted_ingests_failed()
+threading.Thread(target=reindex_stale_papers, name="reindex", daemon=True).start()
 
 app = FastAPI(title="RAG Research Assistant", version="1.0.0")
 

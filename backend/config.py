@@ -39,11 +39,14 @@ class Settings(BaseSettings):
     llm_key_encryption_key: str = ""
     db_path: str = DEFAULT_DB_PATH
     chroma_path: str = DEFAULT_CHROMA_PATH
-    rag_top_k: int = 2
-    # In words. all-MiniLM-L6-v2 truncates input at 256 tokens (~180 words of
-    # scientific English); anything past that is silently not embedded.
-    chunk_size: int = 180
-    chunk_overlap: int = 30
+    # Multilingual, so questions in Russian match English papers. Changing it
+    # re-ingests every library at the next start (reindex_stale_papers).
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    rag_top_k: int = 5
+    # In words. The embedding model truncates input at 128 tokens (~100 words
+    # of scientific English); anything past that is silently not embedded.
+    chunk_size: int = 100
+    chunk_overlap: int = 20
     # Cap characters per chunk injected into the prompt (0 = no cap).
     # Shorter context => fewer prompt-eval tokens => faster first token.
     rag_chunk_char_limit: int = 1200

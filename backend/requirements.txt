@@ -7,9 +7,12 @@ python-dotenv==1.0.1
 
 # Storage
 sqlalchemy==2.0.36
-# Also provides the embedding model (all-MiniLM-L6-v2 on onnxruntime), so no
-# torch / sentence-transformers.
 chromadb==0.5.23
+# chromadb 0.5 calls the pre-6.0 posthog API; newer versions log an error
+# on every client event (telemetry itself is disabled in vector/chroma.py).
+posthog<6
+# Embedding model on onnxruntime (no torch / sentence-transformers).
+fastembed==0.9.0
 numpy<2
 
 # Auth

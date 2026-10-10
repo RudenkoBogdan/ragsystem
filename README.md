@@ -6,7 +6,7 @@ A full-stack application for querying scientific papers using Retrieval-Augmente
 
 - 📄 **Paper Management** - Add arXiv papers to your personal library via URL
 - 💬 **Chat Interface** - Ask questions about your papers with streaming responses
-- 🔍 **Vector Search** - Semantic search using ChromaDB (all-MiniLM-L6-v2 on ONNX Runtime, no PyTorch)
+- 🔍 **Vector Search** - Semantic search using ChromaDB and a multilingual embedding model on ONNX Runtime (ask in Russian about English papers)
 - 📊 **LaTeX Support** - Mathematical formulas render as compiled equations
 - 🔗 **Interactive Sources** - Click citations to open PDFs at specific pages
 - 🎨 **Dark Theme** - Modern dark interface with Tailwind CSS
@@ -19,7 +19,7 @@ A full-stack application for querying scientific papers using Retrieval-Augmente
 |-------|------------|
 | Frontend | Next.js 15, TypeScript, Tailwind CSS, shadcn/ui |
 | Backend | FastAPI (Python 3.11) |
-| Vector DB | ChromaDB, all-MiniLM-L6-v2 via ONNX Runtime |
+| Vector DB | ChromaDB, paraphrase-multilingual-MiniLM-L12-v2 via fastembed (ONNX Runtime) |
 | LLM | OpenRouter API (any model) |
 | Auth | JWT + argon2 password hashing |
 | arXiv | arxiv library + PyMuPDF for PDF parsing |
@@ -86,7 +86,7 @@ flowchart LR
 
 1. You paste an arXiv URL in the sidebar.
 2. The backend downloads the PDF and pulls the paper's metadata.
-3. The text is split into small chunks and turned into embeddings — locally, with all-MiniLM-L6-v2 on ONNX Runtime (bundled with ChromaDB).
+3. The text is split into small chunks and turned into embeddings — locally, with a multilingual model (paraphrase-multilingual-MiniLM-L12-v2) on ONNX Runtime, so questions in other languages still find English passages.
 4. Embeddings land in ChromaDB; the paper shows up in your library.
 
 ### 💬 Asking a question

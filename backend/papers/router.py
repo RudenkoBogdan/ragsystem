@@ -8,6 +8,7 @@ from security.logging_setup import get_logger
 from security.policy import PolicyError, resolve_page
 from .schemas import AddPaperRequest, PaperResponse
 from .ingest import parse_arxiv_id, ingest_arxiv_paper, delete_paper_vectors
+from vector.chroma import collection_name, get_chroma_client, get_user_collection
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
@@ -105,16 +106,73 @@ def _ingest_in_background(paper_id: int, arxiv_id: str, user_id: int) -> None:
         db.close()
 
 
+INTERRUPTED_ERROR = "Ingestion was interrupted. Delete and add it again."
+
+
 def mark_interrupted_ingests_failed() -> None:
     """Background tasks die with the process; don't leave rows spinning forever."""
     db = SessionLocal()
     try:
         db.query(models.Paper).filter(models.Paper.status == "processing").update(
-            {"status": "failed", "error": "Ingestion was interrupted. Delete and add it again."}
+            {"status": "failed", "error": INTERRUPTED_ERROR}
         )
         db.commit()
     finally:
         db.close()
+
+
+def _has_current_vectors(user_id: int, paper_id: int) -> bool:
+    found = get_user_collection(user_id).get(where={"paper_id": str(paper_id)}, limit=1)
+    return bool(found["ids"])
+
+
+def reindex_stale_papers() -> None:
+    """Re-ingest papers that have no vectors from the current embedding model.
+
+    Runs once at startup in a background thread (after a model change, or for
+    a library indexed before per-model collections existed). Papers are
+    re-downloaded rather than re-embedded from stored chunks, so they are also
+    re-chunked to fit the new model's input limit. Sequential on purpose:
+    arXiv rate-limits, and the embedding model already uses every core.
+    """
+    db = SessionLocal()
+    try:
+        stale = [
+            (p.id, p.arxiv_id, p.user_id)
+            for p in db.query(models.Paper)
+            .filter(
+                # Interrupted ones are retried too: a restart during a reindex
+                # must not leave those papers failed for good.
+                (models.Paper.status == "ready")
+                | ((models.Paper.status == "failed") & (models.Paper.error == INTERRUPTED_ERROR))
+            )
+            .order_by(models.Paper.id)
+            if not _has_current_vectors(p.user_id, p.id)
+        ]
+        if stale:
+            log.info("papers.reindex_start count=%d", len(stale))
+            # Mark them all first so the UI shows the whole queue at once.
+            db.query(models.Paper).filter(models.Paper.id.in_([s[0] for s in stale])).update(
+                {"status": "processing", "stage": "queued", "progress": 0.0},
+                synchronize_session=False,
+            )
+            db.commit()
+        user_ids = {u for (u,) in db.query(models.Paper.user_id).distinct()}
+    finally:
+        db.close()
+
+    for paper_id, arxiv_id, user_id in stale:
+        _ingest_in_background(paper_id, arxiv_id, user_id)
+
+    # Vectors from other models are unusable now; drop their collections.
+    client = get_chroma_client()
+    for user_id in user_ids:
+        current = collection_name(user_id)
+        for col in client.list_collections():
+            name = col if isinstance(col, str) else col.name
+            if name != current and (name == f"user_{user_id}" or name.startswith(f"user_{user_id}_")):
+                client.delete_collection(name)
+                log.info("papers.reindex_dropped_collection name=%s", name)
 
 
 @router.get("", response_model=list[PaperResponse])

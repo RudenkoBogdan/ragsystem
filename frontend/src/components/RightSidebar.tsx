@@ -93,7 +93,7 @@ export default function RightSidebar({
             {loading ? (
               <>
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Ingesting...
+                Adding...
               </>
             ) : (
               <>
@@ -165,7 +165,18 @@ function PaperCard({
           <p className="text-xs font-medium text-text-primary leading-snug line-clamp-2 break-words">
             {paper.title}
           </p>
-          <p className="mt-1 text-xs text-text-secondary truncate">{paper.authors}</p>
+          {paper.status === "processing" ? (
+            <p className="mt-1 flex items-center gap-1 text-xs text-text-muted">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Downloading and indexing…
+            </p>
+          ) : paper.status === "failed" ? (
+            <p className="mt-1 text-xs text-red-400 break-words">
+              {paper.error ?? "Ingestion failed."}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-text-secondary truncate">{paper.authors}</p>
+          )}
           <div className="mt-1 flex items-center gap-1 flex-wrap">
             {paper.year && (
               <span className="text-xs text-text-muted">{paper.year}</span>

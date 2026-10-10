@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
-from database import get_db
+from database import SessionLocal, get_db
 from auth.utils import get_current_user
 import models
 from security.logging_setup import get_logger
@@ -13,9 +13,10 @@ router = APIRouter(prefix="/papers", tags=["papers"])
 log = get_logger("papers.router")
 
 
-@router.post("", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=PaperResponse, status_code=status.HTTP_202_ACCEPTED)
 def add_paper(
     body: AddPaperRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -32,35 +33,68 @@ def add_paper(
     if existing:
         raise HTTPException(status_code=409, detail="Paper already in your library")
 
-    # Create placeholder so we have the DB id for vector metadata
-    paper = models.Paper(arxiv_id=arxiv_id, title="Loading...", authors="", user_id=current_user.id)
+    # Create the row now (its id goes into the vector metadata) and do the slow
+    # part -- arXiv lookup, PDF download, embedding -- after the response.
+    paper = models.Paper(
+        arxiv_id=arxiv_id,
+        title=arxiv_id,
+        authors="",
+        user_id=current_user.id,
+        status="processing",
+    )
     db.add(paper)
     db.commit()
     db.refresh(paper)
 
-    try:
-        metadata = ingest_arxiv_paper(arxiv_id, current_user.id, paper.id)
-    except Exception:
-        db.delete(paper)
-        db.commit()
-        # The traceback goes to the operator's log, the client gets a fixed
-        # sentence.  The `detail` used to interpolate the exception, handing
-        # the user whatever arXiv's client, PyMuPDF or the vector store
-        # raised -- an information leak, and useless to them besides.
-        log.exception("papers.ingest_failed arxiv_id=%s", arxiv_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Ingestion failed: the paper could not be retrieved from arXiv.",
-        )
-
-    paper.title = metadata["title"]
-    paper.authors = metadata["authors"]
-    paper.abstract = metadata["abstract"]
-    paper.year = metadata["year"]
-    paper.url = metadata["url"]
-    db.commit()
-    db.refresh(paper)
+    background_tasks.add_task(_ingest_in_background, paper.id, arxiv_id, current_user.id)
     return paper
+
+
+def _ingest_in_background(paper_id: int, arxiv_id: str, user_id: int) -> None:
+    # Sync function: Starlette runs it in the threadpool, so the event loop is
+    # free while the PDF downloads and the embedding model runs.
+    db = SessionLocal()
+    try:
+        try:
+            metadata = ingest_arxiv_paper(arxiv_id, user_id, paper_id)
+        except Exception:
+            # The traceback goes to the operator's log; the client gets a fixed
+            # sentence, never the text of whatever arXiv/PyMuPDF/Chroma raised.
+            log.exception("papers.ingest_failed arxiv_id=%s", arxiv_id)
+            paper = db.get(models.Paper, paper_id)
+            if paper:
+                paper.status = "failed"
+                paper.error = "Ingestion failed: the paper could not be retrieved from arXiv."
+                db.commit()
+            return
+
+        paper = db.get(models.Paper, paper_id)
+        if paper is None:
+            # Deleted while it was being ingested: drop the vectors just written.
+            delete_paper_vectors(user_id, paper_id)
+            return
+        paper.title = metadata["title"]
+        paper.authors = metadata["authors"]
+        paper.abstract = metadata["abstract"]
+        paper.year = metadata["year"]
+        paper.url = metadata["url"]
+        paper.status = "ready"
+        paper.error = None
+        db.commit()
+    finally:
+        db.close()
+
+
+def mark_interrupted_ingests_failed() -> None:
+    """Background tasks die with the process; don't leave rows spinning forever."""
+    db = SessionLocal()
+    try:
+        db.query(models.Paper).filter(models.Paper.status == "processing").update(
+            {"status": "failed", "error": "Ingestion was interrupted. Delete and add it again."}
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 @router.get("", response_model=list[PaperResponse])

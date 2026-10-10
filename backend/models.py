@@ -26,6 +26,10 @@ class Paper(Base):
     abstract = Column(Text)
     year = Column(Integer)
     url = Column(String)
+    # "processing" while the PDF is downloaded and embedded in the background,
+    # then "ready" or "failed" (with a user-safe message in `error`).
+    status = Column(String, nullable=False, default="ready", server_default="ready")
+    error = Column(String)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -56,3 +60,4 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("ChatSession", back_populates="messages")
+

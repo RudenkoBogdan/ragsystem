@@ -11,6 +11,9 @@ export interface Paper {
   abstract: string | null;
   year: number | null;
   url: string | null;
+  /** "processing" while being downloaded and indexed in the background. */
+  status: "processing" | "ready" | "failed";
+  error: string | null;
   created_at: string;
 }
 

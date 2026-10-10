@@ -16,6 +16,8 @@ class PaperResponse(BaseModel):
     abstract: Optional[str] = None
     year: Optional[int] = None
     url: Optional[str] = None
+    status: str = "ready"
+    error: Optional[str] = None
     created_at: datetime
 
     class Config:

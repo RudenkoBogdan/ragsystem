@@ -19,3 +19,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Columns added after the first release. create_all() creates missing tables
+# but never alters existing ones, so add these by hand until there is Alembic.
+_ADDED_COLUMNS = {
+    "papers": {
+        "status": "VARCHAR NOT NULL DEFAULT 'ready'",
+        "error": "VARCHAR",
+    },
+}
+
+
+def upgrade_schema() -> None:
+    with engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            if not existing:
+                continue  # table not created yet; create_all will build it whole
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")

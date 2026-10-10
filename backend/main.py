@@ -7,9 +7,9 @@ configure_logging(settings.log_level)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import Base, engine
+from database import Base, engine, upgrade_schema
 from auth.router import router as auth_router
-from papers.router import router as papers_router
+from papers.router import router as papers_router, mark_interrupted_ingests_failed
 from chat.router import router as chat_router
 from security.policy import jwt_secret_problem, parse_cors_origins
 
@@ -23,7 +23,9 @@ if _jwt_problem:
         "Set a strong JWT_SECRET (or ALLOW_INSECURE_JWT_SECRET=true for local dev only)."
     )
 
+upgrade_schema()
 Base.metadata.create_all(bind=engine)
+mark_interrupted_ingests_failed()
 
 app = FastAPI(title="RAG Research Assistant", version="1.0.0")
 

@@ -2,7 +2,6 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile.cpu}
     ports:
       - "8000:8000"
     volumes:

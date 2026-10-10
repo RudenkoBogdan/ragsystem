@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     llm_key_encryption_key: str = ""
     db_path: str = DEFAULT_DB_PATH
     chroma_path: str = DEFAULT_CHROMA_PATH
-    embedding_model: str = "all-MiniLM-L6-v2"
     rag_top_k: int = 2
     # In words. all-MiniLM-L6-v2 truncates input at 256 tokens (~180 words of
     # scientific English); anything past that is silently not embedded.

@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from typing import Optional
+from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
@@ -22,3 +23,12 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LlmKeyRequest(BaseModel):
+    api_key: str = Field(min_length=8, max_length=512)
+
+
+class LlmKeyStatus(BaseModel):
+    has_key: bool
+    last4: Optional[str] = None

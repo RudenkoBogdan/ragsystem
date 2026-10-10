@@ -94,7 +94,7 @@ export default function ChatPanel({
       customBaseUrl = ls?.getItem("ollama_base_url") || null;
       customApiKey = ls?.getItem("ollama_api_key") || null;
     } else {
-      customApiKey = ls?.getItem("openrouter_api_key") || null;
+      // The OpenRouter key lives on the server (see Settings); not sent from here.
       customModel = ls?.getItem("openrouter_model") || null;
     }
 

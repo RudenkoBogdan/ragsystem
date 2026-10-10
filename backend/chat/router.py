@@ -16,6 +16,7 @@ from security.policy import PolicyError, resolve_page
 from config import settings
 from .schemas import CreateSessionRequest, SessionResponse, MessageResponse, SendMessageRequest
 from .service import stream_rag_response
+from auth.secrets import get_llm_api_key
 from .citations import abstention_message
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -206,6 +207,12 @@ async def send_message(
     stream_failed = False
 
     user_id = current_user.id  # Extract ID before streaming
+
+    # The user's stored OpenRouter key; only for OpenRouter, so it is never sent
+    # to a self-chosen Ollama base_url. A key in the request body still wins.
+    api_key = body.api_key
+    if not api_key and (body.provider or settings.llm_provider) != "ollama":
+        api_key = get_llm_api_key(db, user_id)
     scope = {
         "applied": bool(body.paper_ids),
         "paper_ids": list(body.paper_ids or []),
@@ -220,7 +227,7 @@ async def send_message(
                 body.content,
                 history,
                 paper_ids=body.paper_ids,
-                api_key=body.api_key,
+                api_key=api_key,
                 model=body.model,
                 provider=body.provider,
                 base_url=body.base_url,

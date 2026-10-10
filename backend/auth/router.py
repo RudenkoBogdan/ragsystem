@@ -4,7 +4,8 @@ from config import settings
 from database import get_db
 import models
 from security.ratelimit import RateLimitExceeded, SlidingWindowLimiter, UNKNOWN_IP
-from .schemas import RegisterRequest, LoginRequest, TokenResponse, UserResponse
+from .schemas import RegisterRequest, LoginRequest, TokenResponse, UserResponse, LlmKeyRequest, LlmKeyStatus
+from .secrets import set_llm_api_key, delete_llm_api_key
 from .utils import hash_password, verify_password, create_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -63,3 +64,34 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def me(current_user: models.User = Depends(get_current_user)):
     return current_user
+
+
+# The user's own LLM API key. Write-only from the client's point of view: the
+# full key is never returned, only whether one is stored and its last 4 chars.
+@router.get("/llm-key", response_model=LlmKeyStatus)
+def get_llm_key_status(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    secret = db.get(models.UserSecret, current_user.id)
+    if not secret:
+        return LlmKeyStatus(has_key=False)
+    return LlmKeyStatus(has_key=True, last4=secret.llm_api_key_last4)
+
+
+@router.put("/llm-key", response_model=LlmKeyStatus)
+def put_llm_key(
+    body: LlmKeyRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    secret = set_llm_api_key(db, current_user, body.api_key.strip())
+    return LlmKeyStatus(has_key=True, last4=secret.llm_api_key_last4)
+
+
+@router.delete("/llm-key", status_code=status.HTTP_204_NO_CONTENT)
+def remove_llm_key(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    delete_llm_api_key(db, current_user)

@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
+import { llmKeyApi, migrateLegacyLlmKey, type LlmKeyStatus } from "@/lib/api";
 
 type Provider = "openrouter" | "ollama";
 
@@ -21,7 +22,10 @@ export default function Settings() {
 
   // OpenRouter
   const [model, setModel] = useState("anthropic/claude-3-5-sonnet");
+  // Typed key, only ever sent to the server; never read back or kept locally.
   const [apiKey, setApiKey] = useState("");
+  const [keyStatus, setKeyStatus] = useState<LlmKeyStatus>({ has_key: false, last4: null });
+  const [saveError, setSaveError] = useState("");
 
   // Ollama
   const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
@@ -36,10 +40,13 @@ export default function Settings() {
   useEffect(() => {
     setProvider((localStorage.getItem("llm_provider") as Provider) || "openrouter");
     setModel(localStorage.getItem("openrouter_model") || "anthropic/claude-3-5-sonnet");
-    setApiKey(localStorage.getItem("openrouter_api_key") || "");
     setOllamaUrl(localStorage.getItem("ollama_base_url") || DEFAULT_OLLAMA_URL);
     setOllamaModel(localStorage.getItem("ollama_model") || "llama3");
-    setIsLoading(false);
+    migrateLegacyLlmKey()
+      .then(() => llmKeyApi.status())
+      .then(setKeyStatus)
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
   }, []);
 
   // Fetch installed Ollama models from the local daemon (browser → host).
@@ -66,20 +73,40 @@ export default function Settings() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaveError("");
+    if (apiKey.trim()) {
+      try {
+        setKeyStatus(await llmKeyApi.set(apiKey.trim()));
+        setApiKey("");
+      } catch (e: any) {
+        setSaveError(`Не удалось сохранить ключ: ${e.message}`);
+        return;
+      }
+    }
     localStorage.setItem("llm_provider", provider);
     localStorage.setItem("openrouter_model", model);
-    if (apiKey) localStorage.setItem("openrouter_api_key", apiKey);
     localStorage.setItem("ollama_base_url", ollamaUrl);
     localStorage.setItem("ollama_model", ollamaModel);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
   };
 
-  const handleReset = () => {
+  const handleRemoveKey = async () => {
+    setSaveError("");
+    try {
+      await llmKeyApi.remove();
+      setKeyStatus({ has_key: false, last4: null });
+    } catch (e: any) {
+      setSaveError(`Не удалось удалить ключ: ${e.message}`);
+    }
+  };
+
+  const handleReset = async () => {
     ["llm_provider", "openrouter_model", "openrouter_api_key", "ollama_base_url", "ollama_model"].forEach(
       (k) => localStorage.removeItem(k)
     );
+    await handleRemoveKey();
     setProvider("openrouter");
     setModel("anthropic/claude-3-5-sonnet");
     setApiKey("");
@@ -170,12 +197,27 @@ export default function Settings() {
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-or-v1-..."
+                  placeholder={keyStatus.has_key ? `Сохранён ключ ••••${keyStatus.last4}` : "sk-or-v1-..."}
+                  autoComplete="off"
                   className={inputClass}
                 />
-                <p className="mt-2 text-xs text-text-muted">
-                  Оставьте пустым, чтобы использовать серверный ключ по умолчанию. Ключ хранится только локально.
-                </p>
+                <div className="mt-2 flex items-start justify-between gap-3">
+                  <p className="text-xs text-text-muted">
+                    {keyStatus.has_key
+                      ? "Ключ хранится на сервере в зашифрованном виде. Введите новый, чтобы заменить его."
+                      : "Оставьте пустым, чтобы использовать серверный ключ по умолчанию. Ключ хранится на сервере в зашифрованном виде."}
+                  </p>
+                  {keyStatus.has_key && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveKey}
+                      className="shrink-0 text-xs text-red-400 hover:text-red-300"
+                    >
+                      Удалить ключ
+                    </button>
+                  )}
+                </div>
+                {saveError && <p className="mt-2 text-xs text-red-400">{saveError}</p>}
               </div>
             </>
           )}

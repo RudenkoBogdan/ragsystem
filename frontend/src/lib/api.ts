@@ -43,6 +43,37 @@ export const authApi = {
   me: () => request<{ id: number; username: string }>("/api/auth/me"),
 };
 
+// The user's OpenRouter key is stored (encrypted) on the server and never
+// returned; the browser only learns whether one is set and its last 4 chars.
+export interface LlmKeyStatus {
+  has_key: boolean;
+  last4: string | null;
+}
+
+export const llmKeyApi = {
+  status: () => request<LlmKeyStatus>("/api/auth/llm-key"),
+  set: (apiKey: string) =>
+    request<LlmKeyStatus>("/api/auth/llm-key", {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  remove: () => request<void>("/api/auth/llm-key", { method: "DELETE" }),
+};
+
+const LEGACY_KEY = "openrouter_api_key";
+
+/** Move a key saved by older versions from localStorage to the server. */
+export async function migrateLegacyLlmKey(): Promise<void> {
+  const legacy = localStorage.getItem(LEGACY_KEY);
+  if (!legacy) return;
+  try {
+    await llmKeyApi.set(legacy);
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    // Keep it for the next attempt rather than losing the user's key.
+  }
+}
+
 // Papers
 export const papersApi = {
   list: () => request<Paper[]>("/api/papers"),

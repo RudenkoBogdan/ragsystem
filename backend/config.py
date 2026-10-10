@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7
+    # Fernet key for users' stored LLM API keys. Empty = derived from jwt_secret.
+    llm_key_encryption_key: str = ""
     db_path: str = DEFAULT_DB_PATH
     chroma_path: str = DEFAULT_CHROMA_PATH
     embedding_model: str = "all-MiniLM-L6-v2"

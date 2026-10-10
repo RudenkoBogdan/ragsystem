@@ -5,7 +5,7 @@ import LeftSidebar from "@/components/LeftSidebar";
 import ChatPanel from "@/components/ChatPanel";
 import RightSidebar from "@/components/RightSidebar";
 import type { ChatSession, Paper } from "@/types";
-import { sessionsApi, papersApi } from "@/lib/api";
+import { sessionsApi, papersApi, migrateLegacyLlmKey } from "@/lib/api";
 
 export default function ChatPage() {
   const router = useRouter();
@@ -39,6 +39,7 @@ export default function ChatPage() {
   }, [anyProcessing]);
 
   useEffect(() => {
+    migrateLegacyLlmKey();
     Promise.all([sessionsApi.list(), papersApi.list()])
       .then(([s, p]) => {
         setSessions(s);

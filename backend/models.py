@@ -14,6 +14,7 @@ class User(Base):
 
     papers = relationship("Paper", back_populates="owner", cascade="all, delete-orphan")
     chat_sessions = relationship("ChatSession", back_populates="owner", cascade="all, delete-orphan")
+    llm_secret = relationship("UserSecret", uselist=False, cascade="all, delete-orphan")
 
 
 class Paper(Base):
@@ -61,3 +62,16 @@ class Message(Base):
 
     session = relationship("ChatSession", back_populates="messages")
 
+
+class UserSecret(Base):
+    """The user's own LLM API key, encrypted at rest (see auth/secrets.py).
+
+    Kept server-side so the browser never has to hold it: anything readable by
+    page JavaScript (localStorage) is readable by any XSS in rendered answers.
+    """
+    __tablename__ = "user_secrets"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    llm_api_key_encrypted = Column(Text, nullable=False)
+    llm_api_key_last4 = Column(String, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

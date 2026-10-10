@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from database import SessionLocal, get_db
@@ -41,6 +42,8 @@ def add_paper(
         authors="",
         user_id=current_user.id,
         status="processing",
+        stage="queued",
+        progress=0.0,
     )
     db.add(paper)
     db.commit()
@@ -55,8 +58,23 @@ def _ingest_in_background(paper_id: int, arxiv_id: str, user_id: int) -> None:
     # free while the PDF downloads and the embedding model runs.
     db = SessionLocal()
     try:
+        last_write = 0.0
+
+        def on_progress(stage: str, fraction: float) -> None:
+            # Throttled: the client polls about once a second, so writing on
+            # every 64 KB block would only churn SQLite.
+            nonlocal last_write
+            now = time.monotonic()
+            if now - last_write < 0.5 and fraction < 1:
+                return
+            last_write = now
+            db.query(models.Paper).filter(models.Paper.id == paper_id).update(
+                {"stage": stage, "progress": round(fraction, 3)}
+            )
+            db.commit()
+
         try:
-            metadata = ingest_arxiv_paper(arxiv_id, user_id, paper_id)
+            metadata = ingest_arxiv_paper(arxiv_id, user_id, paper_id, on_progress)
         except Exception:
             # The traceback goes to the operator's log; the client gets a fixed
             # sentence, never the text of whatever arXiv/PyMuPDF/Chroma raised.
@@ -80,6 +98,8 @@ def _ingest_in_background(paper_id: int, arxiv_id: str, user_id: int) -> None:
         paper.url = metadata["url"]
         paper.status = "ready"
         paper.error = None
+        paper.stage = None
+        paper.progress = None
         db.commit()
     finally:
         db.close()

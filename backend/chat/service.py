@@ -408,6 +408,9 @@ async def stream_rag_response(
     # can be checked for real vs. fabricated citations once it is complete.
     answer_parts = []
 
+    # Progress for the client, shown until the first token arrives.
+    yield f"data: {json.dumps({'type': 'status', 'stage': 'generating'})}\n\n"
+
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as response:
             if response.status != 200:

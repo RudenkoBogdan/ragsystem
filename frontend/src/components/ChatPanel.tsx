@@ -2,8 +2,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Send, MessageSquare, X } from "lucide-react";
 import { sessionsApi, sendMessageStream } from "@/lib/api";
-import type { ChatSession, Message, Paper } from "@/types";
+import type { ChatSession, ChatStage, Message, Paper } from "@/types";
 import MessageBubble from "./MessageBubble";
+import ProgressBar from "./ProgressBar";
+
+const CHAT_STAGE_LABELS: Record<ChatStage, string> = {
+  retrieving: "Searching your library…",
+  generating: "Waiting for the model…",
+};
 
 interface Props {
   session: ChatSession | null;
@@ -24,6 +30,8 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  // Shown until the first token arrives; null once the answer is streaming.
+  const [stage, setStage] = useState<ChatStage | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -57,6 +65,7 @@ export default function ChatPanel({
     const userContent = input.trim();
     setInput("");
     setStreaming(true);
+    setStage("retrieving");
 
     const userMsg: Message = {
       id: Date.now(),
@@ -106,6 +115,7 @@ export default function ChatPanel({
       session.id,
       userContent,
       (token) => {
+        setStage(null);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id ? { ...m, content: m.content + token } : m
@@ -121,6 +131,7 @@ export default function ChatPanel({
           )
         );
         setStreaming(false);
+        setStage(null);
       },
       (err) => {
         // Appended, not substituted: a stream that dies halfway has already
@@ -134,6 +145,7 @@ export default function ChatPanel({
           })
         );
         setStreaming(false);
+        setStage(null);
       },
       {
         apiKey: customApiKey || undefined,
@@ -141,6 +153,7 @@ export default function ChatPanel({
         provider,
         baseUrl: customBaseUrl || undefined,
         paperIds: sentScopeIds,
+        onStatus: setStage,
       }
     );
   }
@@ -180,6 +193,9 @@ export default function ChatPanel({
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
+        {streaming && stage && (
+          <ProgressBar className="mx-auto max-w-sm" label={CHAT_STAGE_LABELS[stage]} />
+        )}
         <div ref={bottomRef} />
       </div>
 

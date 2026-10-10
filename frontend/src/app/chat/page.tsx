@@ -28,13 +28,13 @@ export default function ChatPage() {
   }
 
   // While any paper is still being indexed in the background, refresh the
-  // list every few seconds so its status flips to ready/failed on its own.
+  // list every second so its status flips to ready/failed on its own.
   const anyProcessing = papers.some((p) => p.status === "processing");
   useEffect(() => {
     if (!anyProcessing) return;
     const timer = setInterval(() => {
       papersApi.list().then(setPapers).catch(() => {});
-    }, 3000);
+    }, 1000);
     return () => clearInterval(timer);
   }, [anyProcessing]);
 

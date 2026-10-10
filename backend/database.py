@@ -27,6 +27,8 @@ _ADDED_COLUMNS = {
     "papers": {
         "status": "VARCHAR NOT NULL DEFAULT 'ready'",
         "error": "VARCHAR",
+        "stage": "VARCHAR",
+        "progress": "FLOAT",
     },
 }
 

@@ -222,6 +222,8 @@ async def send_message(
     async def generate():
         nonlocal final_sources, final_abstained, stream_failed
         try:
+            # Progress for the client; the service reports 'generating' later.
+            yield f"data: {json.dumps({'type': 'status', 'stage': 'retrieving'})}\n\n"
             async for chunk in stream_rag_response(
                 user_id,
                 body.content,

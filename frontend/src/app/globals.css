@@ -36,3 +36,15 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #3d4560;
 }
+
+/* Indeterminate progress bar: a segment sliding across the track. */
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+.progress-indeterminate {
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate { animation: none; transform: none; width: 100% !important; opacity: 0.5; }
+}

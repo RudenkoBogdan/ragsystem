@@ -1,5 +1,8 @@
+import os
 import re
 import tempfile
+import urllib.request
+from typing import Callable, Optional
 import arxiv
 import fitz  # PyMuPDF
 from vector.chroma import get_user_collection, embed
@@ -38,7 +41,50 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
-def _extract_pdf_text(pdf_path: str) -> list[tuple[int, str]]:
+# on_progress(stage, fraction): fraction is overall progress in [0, 1].
+ProgressFn = Callable[[str, float], None]
+
+# Share of the overall bar each stage owns, in order. Embedding dominates on
+# CPU; the download depends on the network.
+_STAGES = [
+    ("metadata", 0.05),
+    ("downloading", 0.30),
+    ("extracting", 0.10),
+    ("embedding", 0.50),
+    ("saving", 0.05),
+]
+_STAGE_START = {}
+_acc = 0.0
+for _name, _share in _STAGES:
+    _STAGE_START[_name] = (_acc, _share)
+    _acc += _share
+
+EMBED_BATCH = 32
+DOWNLOAD_BLOCK = 64 * 1024
+
+
+def _reporter(on_progress: Optional[ProgressFn]) -> Callable[[str, float], None]:
+    def report(stage: str, within: float) -> None:
+        if on_progress is None:
+            return
+        start, share = _STAGE_START[stage]
+        on_progress(stage, start + share * max(0.0, min(1.0, within)))
+    return report
+
+
+def _download(url: str, path: str, report: Callable[[str, float], None]) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": "ragsystem/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp, open(path, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or 0)
+        done = 0
+        while block := resp.read(DOWNLOAD_BLOCK):
+            out.write(block)
+            done += len(block)
+            # Without Content-Length, creep toward the end of the stage instead.
+            report("downloading", done / total if total else 1 - 1 / (1 + done / 2_000_000))
+
+
+def _extract_pdf_text(pdf_path: str, report: Callable[[str, float], None]) -> list[tuple[int, str]]:
     """Returns list of (page_number, text) tuples."""
     doc = fitz.open(pdf_path)
     pages = []
@@ -46,11 +92,16 @@ def _extract_pdf_text(pdf_path: str) -> list[tuple[int, str]]:
         text = page.get_text().strip()
         if text:
             pages.append((i + 1, text))
+        report("extracting", (i + 1) / doc.page_count)
     return pages
 
 
-def ingest_arxiv_paper(arxiv_id: str, user_id: int, paper_db_id: int) -> dict:
+def ingest_arxiv_paper(
+    arxiv_id: str, user_id: int, paper_db_id: int, on_progress: Optional[ProgressFn] = None
+) -> dict:
     """Download and index an arXiv paper. Returns metadata dict."""
+    report = _reporter(on_progress)
+    report("metadata", 0)
     search = arxiv.Search(id_list=[arxiv_id], max_results=1)
     client = arxiv.Client()
     results = list(client.results(search))
@@ -66,14 +117,15 @@ def ingest_arxiv_paper(arxiv_id: str, user_id: int, paper_db_id: int) -> dict:
         "year": paper.published.year if paper.published else None,
         "url": paper.entry_id,
     }
+    report("metadata", 1)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        pdf_path = paper.download_pdf(dirpath=tmpdir, filename="paper.pdf")
-        pages = _extract_pdf_text(pdf_path)
+        pdf_path = os.path.join(tmpdir, "paper.pdf")
+        _download(paper.pdf_url, pdf_path, report)
+        pages = _extract_pdf_text(pdf_path, report)
 
     collection = get_user_collection(user_id)
     all_chunk_ids = []
-    all_embeddings = []
     all_documents = []
     all_metadatas = []
 
@@ -91,13 +143,19 @@ def ingest_arxiv_paper(arxiv_id: str, user_id: int, paper_db_id: int) -> dict:
             })
 
     if all_documents:
-        all_embeddings = embed(all_documents)
+        # In batches, so there is something to report between them.
+        all_embeddings = []
+        for i in range(0, len(all_documents), EMBED_BATCH):
+            all_embeddings.extend(embed(all_documents[i:i + EMBED_BATCH]))
+            report("embedding", min(i + EMBED_BATCH, len(all_documents)) / len(all_documents))
+        report("saving", 0)
         collection.upsert(
             ids=all_chunk_ids,
             embeddings=all_embeddings,
             documents=all_documents,
             metadatas=all_metadatas,
         )
+    report("saving", 1)
 
     return metadata
 

@@ -18,6 +18,8 @@ class PaperResponse(BaseModel):
     url: Optional[str] = None
     status: str = "ready"
     error: Optional[str] = None
+    stage: Optional[str] = None
+    progress: Optional[float] = None
     created_at: datetime
 
     class Config:

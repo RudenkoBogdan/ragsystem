@@ -165,7 +165,8 @@ export function sendMessageStream(
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            if (event.type === "token") onToken(event.content);
+            if (event.type === "status") opts.onStatus?.(event.stage);
+            else if (event.type === "token") onToken(event.content);
             else if (event.type === "done") {
               sawDone = true;
               // A failure inside the server-side generator still arrives as a

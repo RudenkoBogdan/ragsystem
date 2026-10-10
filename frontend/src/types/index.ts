@@ -14,6 +14,9 @@ export interface Paper {
   /** "processing" while being downloaded and indexed in the background. */
   status: "processing" | "ready" | "failed";
   error: string | null;
+  /** While processing: current stage and overall progress in [0, 1]. */
+  stage: "queued" | "metadata" | "downloading" | "extracting" | "embedding" | "saving" | null;
+  progress: number | null;
   created_at: string;
 }
 
@@ -101,7 +104,11 @@ export interface SendOptions {
   baseUrl?: string;
   /** Restrict retrieval to these papers. Omitted when empty. */
   paperIds?: number[];
+  /** Server-reported stage before the first token arrives. */
+  onStatus?: (stage: ChatStage) => void;
 }
+
+export type ChatStage = "retrieving" | "generating";
 
 /** The POST body for a chat message. */
 export interface MessageBody {

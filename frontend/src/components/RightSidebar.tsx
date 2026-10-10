@@ -3,6 +3,16 @@ import { useState, useRef } from "react";
 import { Plus, Trash2, BookOpen, Loader2, ExternalLink } from "lucide-react";
 import { papersApi } from "@/lib/api";
 import type { Paper } from "@/types";
+import ProgressBar from "./ProgressBar";
+
+const STAGE_LABELS: Record<NonNullable<Paper["stage"]>, string> = {
+  queued: "Queued…",
+  metadata: "Fetching metadata…",
+  downloading: "Downloading PDF…",
+  extracting: "Extracting text…",
+  embedding: "Indexing…",
+  saving: "Saving…",
+};
 
 interface Props {
   papers: Paper[];
@@ -166,10 +176,11 @@ function PaperCard({
             {paper.title}
           </p>
           {paper.status === "processing" ? (
-            <p className="mt-1 flex items-center gap-1 text-xs text-text-muted">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Downloading and indexing…
-            </p>
+            <ProgressBar
+              className="mt-2"
+              value={paper.progress}
+              label={paper.stage ? STAGE_LABELS[paper.stage] : "Processing…"}
+            />
           ) : paper.status === "failed" ? (
             <p className="mt-1 text-xs text-red-400 break-words">
               {paper.error ?? "Ingestion failed."}

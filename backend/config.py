@@ -38,9 +38,27 @@ class Settings(BaseSettings):
     db_path: str = DEFAULT_DB_PATH
     chroma_path: str = DEFAULT_CHROMA_PATH
     embedding_model: str = "all-MiniLM-L6-v2"
-    rag_top_k: int = 5
-    chunk_size: int = 512
-    chunk_overlap: int = 64
+    rag_top_k: int = 2
+    # In words. all-MiniLM-L6-v2 truncates input at 256 tokens (~180 words of
+    # scientific English); anything past that is silently not embedded.
+    chunk_size: int = 180
+    chunk_overlap: int = 30
+    # Cap characters per chunk injected into the prompt (0 = no cap).
+    # Shorter context => fewer prompt-eval tokens => faster first token.
+    rag_chunk_char_limit: int = 1200
+
+    # --- Generation / latency tuning ---
+    # Fewer retrieved chunks + shorter history => shorter prompt => faster
+    # time-to-first-token on CPU. max_tokens caps generation length.
+    llm_max_tokens: int = 1024
+    llm_temperature: float = 0.3
+    # How many past messages to include as context (each pair adds prompt tokens)
+    chat_history_limit: int = 6
+    # Keep the model resident in RAM so it isn't reloaded on every request
+    # (Ollama "keep_alive"; biggest single win for first-token latency).
+    ollama_keep_alive: str = "24h"
+    # Context window for Ollama; smaller = less prompt-eval work on CPU.
+    ollama_num_ctx: int = 4096
 
     # --- security (added by the security-hardening series) -------------------
     # Every default below is the SAFE one. None of them weakens anything that

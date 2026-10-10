@@ -255,7 +255,7 @@ def retrieve_context(user_id: int, query: str, paper_ids: Optional[list[int]] = 
     return build_chunks(documents, metadatas, distances)
 
 
-def build_system_prompt(chunks: list[dict]) -> tuple[str, list[dict]]:
+def build_system_prompt(chunks: list[dict], char_limit: int = 0) -> tuple[str, list[dict]]:
     """Return (system_prompt, groups).
 
     `groups` is the output of group_citations(chunks) — one entry per distinct
@@ -280,16 +280,20 @@ def build_system_prompt(chunks: list[dict]) -> tuple[str, list[dict]]:
 
     groups = group_citations(chunks)
 
+    limit = char_limit
     context_parts = []
     for group in groups:
+        text = group["text"]
+        if limit > 0 and len(text) > limit:
+            text = text[:limit].rsplit(" ", 1)[0] + "…"
         context_parts.append(
-            f"[{group['label']}] Source: \"{group['title']}\", page {group['page']}\n{group['text']}"
+            f"[{group['label']}] Source: \"{group['title']}\", page {group['page']}\n{text}"
         )
     context = "\n\n---\n\n".join(context_parts)
 
-    system_prompt = f"""You are a research assistant helping with scientific papers.
-Use ONLY the provided context to answer the user's question. Cite sources by their number [1], [2], etc.
-If the context doesn't contain enough information, say so clearly.
+    # Keep this preamble short — every token here is processed before the
+    # first reply token (prompt-eval latency on CPU).
+    system_prompt = f"""You are a research assistant. Use ONLY the provided context to answer. Cite sources as [1], [2]. If the context is insufficient, say so.
 
 Context:
 {context}"""
@@ -345,7 +349,7 @@ async def stream_rag_response(
         )
         return
 
-    system, groups = build_system_prompt(chunks)
+    system, groups = build_system_prompt(chunks, settings.rag_chunk_char_limit)
 
     messages = [*history, {"role": "user", "content": question}]
 
@@ -388,10 +392,16 @@ async def stream_rag_response(
     payload = {
         "model": effective_model,
         "messages": [{"role": "system", "content": system}, *messages],
-        "max_tokens": 2048,
+        "max_tokens": settings.llm_max_tokens,
         "stream": True,
-        "temperature": 0.7,
+        "temperature": settings.llm_temperature,
     }
+
+    # Ollama-specific tuning passed alongside the OpenAI-compatible request:
+    # keep the model resident (avoids costly reload) and cap the context window.
+    if is_ollama:
+        payload["keep_alive"] = settings.ollama_keep_alive
+        payload["options"] = {"num_ctx": settings.ollama_num_ctx}
 
     think_filter = ThinkFilter()
     # Visible text, collected alongside the SSE tokens so the finished answer

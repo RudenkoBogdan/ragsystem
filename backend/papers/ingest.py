@@ -6,15 +6,22 @@ from vector.chroma import get_user_collection, embed
 from config import settings
 
 
+_NEW_ID = r"\d{4}\.\d{4,5}(?:v\d+)?"
+_OLD_ID = r"[a-z][a-z\-]*(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?"  # e.g. hep-th/9901001
+
+
 def parse_arxiv_id(url_or_id: str) -> str:
     url_or_id = url_or_id.strip()
-    # Match arxiv.org/abs/XXXX or arxiv.org/pdf/XXXX
-    match = re.search(r"arxiv\.org/(?:abs|pdf)/([^\s/?#]+)", url_or_id)
+
+    # Match arxiv.org/abs/XXXX or arxiv.org/pdf/XXXX[.pdf]
+    match = re.search(rf"arxiv\.org/(?:abs|pdf)/({_NEW_ID}|{_OLD_ID})(?:\.pdf)?(?:$|[?#/\s])", url_or_id)
     if match:
-        return match.group(1).rstrip(".pdf")
-    # Bare ID like "2301.07041" or "2301.07041v2"
-    if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", url_or_id):
+        return match.group(1)
+
+    # Bare ID like "2301.07041", "2301.07041v2" or "hep-th/9901001"
+    if re.fullmatch(rf"{_NEW_ID}|{_OLD_ID}", url_or_id):
         return url_or_id
+
     raise ValueError(f"Cannot parse arXiv ID from: {url_or_id}")
 
 

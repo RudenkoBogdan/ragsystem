@@ -13,6 +13,7 @@ from security.netguard import (
     public_error_message,
 )
 from security.policy import PolicyError, resolve_page
+from config import settings
 from .schemas import CreateSessionRequest, SessionResponse, MessageResponse, SendMessageRequest
 from .service import stream_rag_response
 from .citations import abstention_message
@@ -172,7 +173,7 @@ async def send_message(
         db.query(models.Message)
         .filter(models.Message.session_id == session_id, models.Message.id != user_msg.id)
         .order_by(models.Message.id.desc())
-        .limit(20)
+        .limit(settings.chat_history_limit)
         .all()
     )
     history = [{"role": m.role, "content": m.content} for m in reversed(history_rows)]
